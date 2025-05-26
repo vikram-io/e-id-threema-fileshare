@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Verify Signed File</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        body {
+            padding-top: 2rem;
+            padding-bottom: 2rem;
+            background-color: #f8f9fa;
+        }
+        .container {
+            max-width: 800px;
+        }
+        .card {
+            margin-bottom: 2rem;
+            border-radius: 10px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+        .card-header {
+            background-color: #6c757d;
+            color: white;
+            font-weight: bold;
+            border-top-left-radius: 10px;
+            border-top-right-radius: 10px;
+        }
+        .btn-primary {
+            background-color: #0d6efd;
+            border-color: #0d6efd;
+        }
+        .btn-primary:hover {
+            background-color: #0b5ed7;
+            border-color: #0a58ca;
+        }
+        .file-info {
+            background-color: #e9ecef;
+            padding: 1rem;
+            border-radius: 8px;
+            margin-bottom: 1rem;
+        }
+        .verification-result {
+            text-align: center;
+            padding: 2rem;
+            margin: 1rem 0;
+            border-radius: 8px;
+        }
+        .verification-success {
+            background-color: #d1e7dd;
+            color: #0f5132;
+        }
+        .verification-failure {
+            background-color: #f8d7da;
+            color: #842029;
+        }
+        .verification-icon {
+            font-size: 4rem;
+            margin-bottom: 1rem;
+        }
+        #qr-code {
+            text-align: center;
+            margin: 1rem 0;
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1 class="text-center mb-4">Verify Signed File</h1>
+        
+        <div class="card">
+            <div class="card-header">
+                File Verification
+            </div>
+            <div class="card-body">
+                <div class="file-info">
+                    <p><strong>Filename:</strong> <span id="filename">{{ file_data['original_filename'] }}</span></p>
+                    <p><strong>Size:</strong> <span id="filesize">{{ '{:.2f}'.format(file_data['size'] / 1024 / 1024) }} MB</span></p>
+                    <p><strong>Uploaded:</strong> <span id="upload-time">{{ datetime.datetime.fromtimestamp(file_data['timestamp']).strftime('%Y-%m-%d %H:%M:%S') }}</span></p>
+                    {% if file_data['signed'] %}
+                    <p><strong>Signed:</strong> <span id="signed-time">{{ datetime.datetime.fromtimestamp(file_data['signed_at']).strftime('%Y-%m-%d %H:%M:%S') }}</span></p>
+                    {% endif %}
+                </div>
+                
+                {% if is_valid %}
+                <div class="verification-result verification-success">
+                    <div class="verification-icon">✓</div>
+                    <h3>Signature Valid</h3>
+                    <p>This file has been signed with a valid E-ID signature.</p>
+                </div>
+                
+                <div id="unsign-section" class="mt-4">
+                    <h4>Unsign with Your E-ID</h4>
+                    <p>To verify your identity and unsign this file, click the button below:</p>
+                    <button id="unsign-button" class="btn btn-primary btn-lg w-100">Unsign with E-ID</button>
+                    
+                    <div id="qr-code">
+                        <p>Scan this QR code with your E-ID app to verify your identity:</p>
+                        <img src="https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=https://example.com/verify/{{ file_id }}" alt="QR Code">
+                        <p class="text-muted">Note: In a real implementation, this would connect to the actual E-ID system.</p>
+                    </div>
+                </div>
+                
+                <div id="download-section" class="mt-4">
+                    <a href="/download/{{ file_id }}" class="btn btn-success btn-lg w-100">Download File</a>
+                </div>
+                {% else %}
+                <div class="verification-result verification-failure">
+                    <div class="verification-icon">✗</div>
+                    <h3>Invalid Signature</h3>
+                    <p>The signature for this file is invalid or has been tampered with.</p>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+        
+        <div class="d-grid gap-2">
+            <a href="/" class="btn btn-secondary">Back to Home</a>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const unsignButton = document.getElementById('unsign-button');
+            const qrCode = document.getElementById('qr-code');
+            
+            if (unsignButton) {
+                // Unsign button click
+                unsignButton.addEventListener('click', function() {
+                    // In a real implementation, this would initiate the E-ID authentication flow
+                    // For this PoC, we'll simulate it
+                    
+                    // Show QR code (simulating E-ID app scanning)
+                    qrCode.style.display = 'block';
+                    unsignButton.disabled = true;
+                    
+                    // Simulate verification process
+                    setTimeout(function() {
+                        // In a real implementation, this would verify the user's E-ID
+                        
+                        // Call the API to unsign the file
+                        fetch('/api/unsign/{{ file_id }}?signature={{ request.args.get("signature") }}', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json'
+                            }
+                        })
+                        .then(response => response.json())
+                        .then(data => {
+                            if (data.success) {
+                                // Hide QR code
+                                qrCode.style.display = 'none';
+                                
+                                // Show success message
+                                alert('Identity verified successfully! You can now download the file.');
+                                
+                                // Enable download
+                                document.getElementById('download-section').style.display = 'block';
+                            } else {
+                                alert('Error verifying identity: ' + data.error);
+                                unsignButton.disabled = false;
+                            }
+                        })
+                        .catch(error => {
+                            console.error('Error:', error);
+                            alert('An error occurred while verifying your identity.');
+                            unsignButton.disabled = false;
+                        });
+                    }, 3000); // Simulate 3-second verification process
+                });
+            }
+        });
+    </script>
+</body>
+</html>

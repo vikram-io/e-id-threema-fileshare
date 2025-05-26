@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>E-ID File Signing</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        body {
+            padding-top: 2rem;
+            padding-bottom: 2rem;
+            background-color: #f8f9fa;
+        }
+        .container {
+            max-width: 800px;
+        }
+        .card {
+            margin-bottom: 2rem;
+            border-radius: 10px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+        .card-header {
+            background-color: #6c757d;
+            color: white;
+            font-weight: bold;
+            border-top-left-radius: 10px;
+            border-top-right-radius: 10px;
+        }
+        .btn-primary {
+            background-color: #0d6efd;
+            border-color: #0d6efd;
+        }
+        .btn-primary:hover {
+            background-color: #0b5ed7;
+            border-color: #0a58ca;
+        }
+        .upload-area {
+            border: 2px dashed #ddd;
+            border-radius: 8px;
+            padding: 2rem;
+            text-align: center;
+            margin-bottom: 1rem;
+            background-color: #fff;
+            cursor: pointer;
+        }
+        .upload-area:hover {
+            border-color: #0d6efd;
+        }
+        .upload-icon {
+            font-size: 3rem;
+            color: #6c757d;
+            margin-bottom: 1rem;
+        }
+        #file-name {
+            margin-top: 1rem;
+            font-weight: bold;
+        }
+        .progress {
+            display: none;
+            margin-top: 1rem;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1 class="text-center mb-4">E-ID File Signing</h1>
+        
+        <div class="card">
+            <div class="card-header">
+                Upload a File to Sign
+            </div>
+            <div class="card-body">
+                <p class="card-text">Select a file to upload and sign with your E-ID. Maximum file size: 100MB.</p>
+                
+                <form action="/upload" method="post" enctype="multipart/form-data" id="upload-form">
+                    <div class="upload-area" id="upload-area">
+                        <div class="upload-icon">📁</div>
+                        <h5>Drag & Drop your file here</h5>
+                        <p>or</p>
+                        <button type="button" class="btn btn-primary" id="browse-button">Browse Files</button>
+                        <input type="file" name="file" id="file-input" style="display: none;">
+                        <div id="file-name"></div>
+                    </div>
+                    
+                    <div class="progress">
+                        <div class="progress-bar progress-bar-striped progress-bar-animated" role="progressbar" style="width: 0%"></div>
+                    </div>
+                    
+                    <div class="d-grid gap-2">
+                        <button type="submit" class="btn btn-primary" id="upload-button" disabled>Upload & Continue to Signing</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+        
+        <div class="card">
+            <div class="card-header">
+                How It Works
+            </div>
+            <div class="card-body">
+                <ol>
+                    <li>Upload a file (any type, up to 100MB)</li>
+                    <li>Sign the file with your E-ID</li>
+                    <li>Share the signed file via Threema</li>
+                    <li>Recipients can verify and unsign the file with their E-ID</li>
+                </ol>
+                <p class="card-text text-muted">Note: This is a proof-of-concept application. Files are stored temporarily for 24 hours.</p>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const uploadArea = document.getElementById('upload-area');
+            const fileInput = document.getElementById('file-input');
+            const fileName = document.getElementById('file-name');
+            const browseButton = document.getElementById('browse-button');
+            const uploadButton = document.getElementById('upload-button');
+            const uploadForm = document.getElementById('upload-form');
+            const progressBar = document.querySelector('.progress');
+            const progressBarInner = document.querySelector('.progress-bar');
+            
+            // Browse button click
+            browseButton.addEventListener('click', function() {
+                fileInput.click();
+            });
+            
+            // File input change
+            fileInput.addEventListener('change', function() {
+                if (fileInput.files.length > 0) {
+                    fileName.textContent = fileInput.files[0].name;
+                    uploadButton.disabled = false;
+                } else {
+                    fileName.textContent = '';
+                    uploadButton.disabled = true;
+                }
+            });
+            
+            // Drag and drop functionality
+            uploadArea.addEventListener('dragover', function(e) {
+                e.preventDefault();
+                uploadArea.classList.add('border-primary');
+            });
+            
+            uploadArea.addEventListener('dragleave', function() {
+                uploadArea.classList.remove('border-primary');
+            });
+            
+            uploadArea.addEventListener('drop', function(e) {
+                e.preventDefault();
+                uploadArea.classList.remove('border-primary');
+                
+                if (e.dataTransfer.files.length > 0) {
+                    fileInput.files = e.dataTransfer.files;
+                    fileName.textContent = e.dataTransfer.files[0].name;
+                    uploadButton.disabled = false;
+                }
+            });
+            
+            // Form submission
+            uploadForm.addEventListener('submit', function() {
+                progressBar.style.display = 'flex';
+                uploadButton.disabled = true;
+                
+                // Simulate progress (in a real app, you'd use XHR or Fetch API to track actual progress)
+                let progress = 0;
+                const interval = setInterval(function() {
+                    progress += 5;
+                    progressBarInner.style.width = progress + '%';
+                    
+                    if (progress >= 100) {
+                        clearInterval(interval);
+                    }
+                }, 100);
+            });
+        });
+    </script>
+</body>
+</html>

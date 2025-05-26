@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sign File with E-ID</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        body {
+            padding-top: 2rem;
+            padding-bottom: 2rem;
+            background-color: #f8f9fa;
+        }
+        .container {
+            max-width: 800px;
+        }
+        .card {
+            margin-bottom: 2rem;
+            border-radius: 10px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+        .card-header {
+            background-color: #6c757d;
+            color: white;
+            font-weight: bold;
+            border-top-left-radius: 10px;
+            border-top-right-radius: 10px;
+        }
+        .btn-primary {
+            background-color: #0d6efd;
+            border-color: #0d6efd;
+        }
+        .btn-primary:hover {
+            background-color: #0b5ed7;
+            border-color: #0a58ca;
+        }
+        .file-info {
+            background-color: #e9ecef;
+            padding: 1rem;
+            border-radius: 8px;
+            margin-bottom: 1rem;
+        }
+        #qr-code {
+            text-align: center;
+            margin: 1rem 0;
+            display: none;
+        }
+        #success-message {
+            display: none;
+        }
+        #threema-form {
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1 class="text-center mb-4">Sign File with E-ID</h1>
+        
+        <div class="card">
+            <div class="card-header">
+                File Information
+            </div>
+            <div class="card-body">
+                <div class="file-info">
+                    <p><strong>Filename:</strong> <span id="filename">{{ file_data['original_filename'] }}</span></p>
+                    <p><strong>Size:</strong> <span id="filesize">{{ '{:.2f}'.format(file_data['size'] / 1024 / 1024) }} MB</span></p>
+                    <p><strong>Uploaded:</strong> <span id="upload-time">{{ datetime.datetime.fromtimestamp(file_data['timestamp']).strftime('%Y-%m-%d %H:%M:%S') }}</span></p>
+                </div>
+                
+                <div id="signing-section">
+                    <p>To sign this file with your E-ID, click the button below:</p>
+                    <button id="sign-button" class="btn btn-primary btn-lg w-100">Sign with E-ID</button>
+                    
+                    <div id="qr-code">
+                        <p>Scan this QR code with your E-ID app to sign the file:</p>
+                        <img src="https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=https://example.com/sign/{{ file_id }}" alt="QR Code">
+                        <p class="text-muted">Note: In a real implementation, this would connect to the actual E-ID system.</p>
+                    </div>
+                </div>
+                
+                <div id="success-message" class="alert alert-success mt-3">
+                    <h4 class="alert-heading">File Signed Successfully!</h4>
+                    <p>Your file has been signed with your E-ID. You can now share it securely.</p>
+                    <hr>
+                    <p class="mb-0">Verification Link: <a id="verification-link" href="#" target="_blank">View Link</a></p>
+                </div>
+                
+                <div id="threema-form" class="mt-4">
+                    <h4>Share via Threema</h4>
+                    <div class="mb-3">
+                        <label for="threema-id" class="form-label">Recipient's Threema ID</label>
+                        <input type="text" class="form-control" id="threema-id" placeholder="XXXXXXXX">
+                    </div>
+                    <button id="send-button" class="btn btn-primary">Send Link</button>
+                    <div id="send-result" class="mt-2"></div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="d-grid gap-2">
+            <a href="/" class="btn btn-secondary">Back to Home</a>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const signButton = document.getElementById('sign-button');
+            const qrCode = document.getElementById('qr-code');
+            const successMessage = document.getElementById('success-message');
+            const threemaForm = document.getElementById('threema-form');
+            const verificationLink = document.getElementById('verification-link');
+            const sendButton = document.getElementById('send-button');
+            const threemaId = document.getElementById('threema-id');
+            const sendResult = document.getElementById('send-result');
+            
+            // Sign button click
+            signButton.addEventListener('click', function() {
+                // Disable the button to prevent multiple clicks
+                signButton.disabled = true;
+                
+                // Call the API to initiate the E-ID signing process
+                fetch('/api/sign/{{ file_id }}', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        // Display the QR code for the E-ID app
+                        qrCode.innerHTML = `
+                            <p>Scan this QR code with your E-ID app to sign the file:</p>
+                            <img src="${data.qr_code}" alt="QR Code">
+                            <p class="text-muted">Open your Swiss E-ID app and scan this code.</p>
+                        `;
+                        qrCode.style.display = 'block';
+                        
+                        // Start polling for signing status
+                        const checkInterval = setInterval(function() {
+                            fetch(`/api/check-signing-status/${encodeURIComponent('{{ file_id }}')}`)
+                                .then(response => response.json())
+                                .then(statusData => {
+                                    if (statusData.success && statusData.signed) {
+                                        // Clear the interval
+                                        clearInterval(checkInterval);
+                                        
+                                        // Hide QR code
+                                        qrCode.style.display = 'none';
+                                        
+                                        // Show success message
+                                        successMessage.style.display = 'block';
+                                        
+                                        // Show Threema form
+                                        threemaForm.style.display = 'block';
+                                        
+                                        // Set verification link
+                                        verificationLink.href = statusData.verification_url;
+                                        verificationLink.textContent = statusData.verification_url;
+                                    }
+                                })
+                                .catch(error => {
+                                    console.error('Error checking signing status:', error);
+                                });
+                        }, 2000); // Check every 2 seconds
+                        
+                        // Set a timeout to stop checking after 5 minutes
+                        setTimeout(function() {
+                            clearInterval(checkInterval);
+                            if (!successMessage.style.display || successMessage.style.display === 'none') {
+                                alert('Signing process timed out. Please try again.');
+                                signButton.disabled = false;
+                                qrCode.style.display = 'none';
+                            }
+                        }, 5 * 60 * 1000); // 5 minutes
+                    } else {
+                        alert('Error initiating signing process: ' + data.error);
+                        signButton.disabled = false;
+                    }
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                    alert('An error occurred while initiating the signing process.');
+                    signButton.disabled = false;
+                });
+            });
+            
+            // Send button click
+            sendButton.addEventListener('click', function() {
+                const recipient = threemaId.value.trim();
+                
+                if (!recipient) {
+                    alert('Please enter a Threema ID');
+                    return;
+                }
+                
+                sendButton.disabled = true;
+                sendResult.innerHTML = '<div class="spinner-border spinner-border-sm text-primary" role="status"><span class="visually-hidden">Loading...</span></div> Sending...';
+                
+                // Call the API to send the link
+                fetch('/api/send-link/{{ file_id }}', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        recipient: recipient
+                    })
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        sendResult.innerHTML = '<div class="alert alert-success">Link sent successfully!</div>';
+                    } else {
+                        sendResult.innerHTML = '<div class="alert alert-danger">Error: ' + data.error + '</div>';
+                        sendButton.disabled = false;
+                    }
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                    sendResult.innerHTML = '<div class="alert alert-danger">An error occurred while sending the link.</div>';
+                    sendButton.disabled = false;
+                });
+            });
+        });
+    </script>
+</body>
+</html>
