@@ -1,6 +1,3 @@
-build:
-  env: python
-  buildCommand: pip install -r requirements.txt
 services:
   - type: web
     name: e-id-file-signing
