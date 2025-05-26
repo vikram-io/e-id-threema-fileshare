@@ -6,9 +6,9 @@ services:
     startCommand: gunicorn src.main:app
     envVars:
       - key: THREEMA_IDENTITY
-        value: "*3MAGW01"
+        value: "3MAGW01"
       - key: THREEMA_SECRET
-        value: "&YwrCeMju6ApTHNRpa6p"
+        value: "YwrCeMju6ApTHNRpa6p"
     disk:
       name: uploads
       mountPath: /src/static/uploads
