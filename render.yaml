@@ -1,0 +1,18 @@
+build:
+  env: python
+  buildCommand: pip install -r requirements.txt
+services:
+  - type: web
+    name: e-id-file-signing
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn src.main:app
+    envVars:
+      - key: THREEMA_IDENTITY
+        value: "*3MAGW01"
+      - key: THREEMA_SECRET
+        value: "&YwrCeMju6ApTHNRpa6p"
+    disk:
+      name: uploads
+      mountPath: /src/static/uploads
+      sizeGB: 1
