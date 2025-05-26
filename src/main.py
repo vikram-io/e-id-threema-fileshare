@@ -1,93 +1,58 @@
-import sys
 import os
+import sys
 import uuid
-import datetime
 import json
-from flask import Flask, render_template, request, redirect, url_for, flash, jsonify, send_from_directory, abort
+import logging
+import datetime
+from flask import Flask, render_template, request, redirect, url_for, jsonify, send_file
 from werkzeug.utils import secure_filename
-import threading
-import time
-from src.threema_service import threema_service
-from src.oid4vp.service import oid4vp_service
-from src.oid4vp.qr_code import generate_qr_code
-from src.oid4vp.signature import signature_service
-from src.filters import datetime_filter
+from src.oid4vp.qr_code import generate_qr_code, create_beta_id_auth_request
+from src.oid4vp.signature import SwiyuSignatureService
+from src.threema_service import ThreemaService
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))  # DON'T CHANGE THIS !!!
+# Set up path for imports
+sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
+# Initialize Flask app
 app = Flask(__name__)
 app.secret_key = os.urandom(24)
-app.config['MAX_CONTENT_LENGTH'] = 100 * 1024 * 1024  # 100MB max upload size
-app.config['UPLOAD_FOLDER'] = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'static', 'uploads')
-app.config['ALLOWED_EXTENSIONS'] = set(['*'])  # Allow all file types
 
-# Register Jinja2 filters
-app.jinja_env.filters['datetime'] = datetime_filter
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
-# Ensure upload directory exists
-os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
-app.logger.info(f"Upload folder set to: {app.config['UPLOAD_FOLDER']}")
+# Configure upload folder
+UPLOAD_FOLDER = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'static', 'uploads')
+if not os.path.exists(UPLOAD_FOLDER):
+    os.makedirs(UPLOAD_FOLDER)
+app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
+app.config['MAX_CONTENT_LENGTH'] = 100 * 1024 * 1024  # 100MB max upload
+
+# Initialize services
+threema_service = ThreemaService()
+signature_service = SwiyuSignatureService()
 
 # Store file metadata
 files_db = {}
 
-# Function to ensure the database file exists
-def ensure_db_file():
-    db_path = os.path.join(app.config['UPLOAD_FOLDER'], 'files_db.json')
-    os.makedirs(os.path.dirname(db_path), exist_ok=True)
-    if not os.path.exists(db_path):
-        with open(db_path, 'w') as f:
-            json.dump({}, f)
-    return db_path
+# File database path
+FILES_DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'files_db.json')
 
-# Function to check if a file should be deleted (older than 24 hours)
-def is_expired(timestamp):
-    now = datetime.datetime.now()
-    file_time = datetime.datetime.fromtimestamp(timestamp)
-    return (now - file_time).total_seconds() > 86400  # 24 hours in seconds
-
-# Background thread to clean up expired files
-def cleanup_expired_files():
-    while True:
-        try:
-            # Check all files in the database
-            files_to_delete = []
-            for file_id, file_data in files_db.items():
-                if is_expired(file_data['timestamp']):
-                    file_path = os.path.join(app.config['UPLOAD_FOLDER'], file_data['filename'])
-                    if os.path.exists(file_path):
-                        os.remove(file_path)
-                    files_to_delete.append(file_id)
-            
-            # Remove deleted files from the database
-            for file_id in files_to_delete:
-                del files_db[file_id]
-                
-            # Save updated database
-            save_files_db()
-            
-        except Exception as e:
-            print(f"Error in cleanup thread: {e}")
-        
-        # Sleep for 1 hour before next cleanup
-        time.sleep(3600)
-
-# Save files database to disk
-def save_files_db():
-    with open(os.path.join(app.config['UPLOAD_FOLDER'], 'files_db.json'), 'w') as f:
-        json.dump(files_db, f)
-# Load file metadata from JSON file
-def load_files_db():
-    global files_db
+# Load file metadata from JSON if exists
+if os.path.exists(FILES_DB_PATH):
     try:
-        db_path = ensure_db_file()
-        with open(db_path, 'r') as f:
+        with open(FILES_DB_PATH, 'r') as f:
             files_db = json.load(f)
-        app.logger.info(f"Loaded file database with {len(files_db)} entries")
     except Exception as e:
-        app.logger.error(f"Error loading file database: {str(e)}")
-        files_db = {}
+        logger.error(f"Error loading files database: {e}")
 
+# Custom Jinja2 filter for datetime formatting
+@app.template_filter('datetime')
+def format_datetime(timestamp):
+    """Format a timestamp as a date string"""
+    return datetime.datetime.fromtimestamp(timestamp).strftime('%Y-%m-%d %H:%M:%S')
+
+# Routes
 @app.route('/')
 def index():
     return render_template('index.html')
@@ -95,295 +60,305 @@ def index():
 @app.route('/upload', methods=['POST'])
 def upload_file():
     try:
-        # Ensure upload directory exists
-        os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
-        
+        # Check if the post request has the file part
         if 'file' not in request.files:
-            app.logger.error("No file part in request")
-            flash('No file part')
-            return redirect(request.url)
+            return jsonify({'error': 'No file part'}), 400
         
         file = request.files['file']
         
+        # If user does not select file, browser also submits an empty part without filename
         if file.filename == '':
-            app.logger.error("No selected file")
-            flash('No selected file')
-            return redirect(request.url)
+            return jsonify({'error': 'No selected file'}), 400
         
         if file:
-            # Generate a unique filename
-            original_filename = secure_filename(file.filename)
+            # Generate a unique ID for the file
             file_id = str(uuid.uuid4())
-            filename = f"{file_id}_{original_filename}"
             
-            # Save the file
-            file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-            app.logger.info(f"Saving file to: {file_path}")
+            # Secure the filename and save the file
+            filename = secure_filename(file.filename)
+            file_path = os.path.join(app.config['UPLOAD_FOLDER'], f"{file_id}_{filename}")
+            
+            # Ensure the upload directory exists
+            os.makedirs(os.path.dirname(file_path), exist_ok=True)
+            
             file.save(file_path)
-            
-            # Verify file was saved
-            if not os.path.exists(file_path):
-                app.logger.error(f"Failed to save file to {file_path}")
-                flash('Error saving file')
-                return redirect(request.url)
             
             # Store file metadata
             files_db[file_id] = {
                 'filename': filename,
-                'original_filename': original_filename,
-                'timestamp': datetime.datetime.now().timestamp(),
+                'path': file_path,
                 'size': os.path.getsize(file_path),
-                'signed': False,
+                'timestamp': int(datetime.datetime.now().timestamp()),
+                'status': 'uploaded',
                 'signature': None
             }
             
-            # Save updated database
-            try:
-                save_files_db()
-            except Exception as e:
-                app.logger.error(f"Error saving file database: {str(e)}")
-                # Continue anyway, as this is not critical
+            # Save the updated files database
+            with open(FILES_DB_PATH, 'w') as f:
+                json.dump(files_db, f)
             
-            # Redirect to signing page
-            return redirect(url_for('sign_file', file_id=file_id))
-        
-        return redirect(url_for('index'))
+            return jsonify({'success': True, 'file_id': file_id}), 200
     except Exception as e:
-        app.logger.error(f"Upload error: {str(e)}")
-        flash(f'An error occurred during upload: {str(e)}')
-        return redirect(url_for('index'))
+        logger.error(f"Error in upload_file: {e}")
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/sign/<file_id>')
 def sign_file(file_id):
+    # Check if file exists
     if file_id not in files_db:
-        flash('File not found')
-        return redirect(url_for('index'))
+        return "File not found", 404
     
     file_data = files_db[file_id]
-    return render_template('sign.html', file_id=file_id, file_data=file_data)
+    
+    # Get the base URL for callbacks
+    base_url = request.url_root.rstrip('/')
+    
+    # Create authentication request for SWIYU app
+    auth_request = create_beta_id_auth_request(file_id, base_url)
+    
+    # Generate QR code
+    qr_code = generate_qr_code(auth_request)
+    
+    return render_template('sign.html', 
+                          file_id=file_id, 
+                          file_data=file_data, 
+                          qr_code=qr_code,
+                          swiyu_url=auth_request)
 
-@app.route('/api/sign/<file_id>', methods=['POST'])
-def api_sign_file(file_id):
-    if file_id not in files_db:
-        return jsonify({'error': 'File not found'}), 404
-    
-    # Create OID4VP presentation request
-    request_data = oid4vp_service.create_presentation_request(file_id)
-    
-    if not request_data:
-        return jsonify({'error': 'Failed to create authentication request'}), 500
-    
-    # Generate the authorization URL
-    auth_url = oid4vp_service.get_auth_url(request_data['jwt'])
-    
-    # Generate QR code with deep link support
-    qr_code_result = generate_qr_code(auth_url)
-    
-    # Store request data in session
-    files_db[file_id]['auth_request'] = {
-        'state': request_data['state'],
-        'request_id': request_data['request_id'],
-        'created_at': datetime.datetime.now().timestamp()
-    }
-    
-    # Save updated database
-    save_files_db()
-    
-    return jsonify({
-        'success': True,
-        'file_id': file_id,
-        'auth_url': auth_url,
-        'image': qr_code_result['image'],
-        'deep_link': qr_code_result['deep_link'],
-        'state': request_data['state']
-    })
+@app.route('/api/auth-request/<file_id>')
+def get_auth_request(file_id):
+    """Endpoint to get the authentication request JWT"""
+    try:
+        # Check if file exists
+        if file_id not in files_db:
+            return jsonify({'error': 'File not found'}), 404
+        
+        # Get the base URL for callbacks
+        base_url = request.url_root.rstrip('/')
+        
+        # Create a real JWT for the authentication request
+        token = signature_service.create_auth_request(file_id, base_url)
+        
+        return jsonify({'token': token}), 200
+    except Exception as e:
+        logger.error(f"Error in get_auth_request: {e}")
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/callback', methods=['POST'])
-def oid4vp_callback():
-    """Callback endpoint for OID4VP authentication responses"""
+def auth_callback():
+    """Callback endpoint for SWIYU app authentication responses"""
     try:
-        # Get the presentation JWT and state from the request
-        data = request.get_json()
-        if not data:
-            return jsonify({'error': 'Invalid request format'}), 400
+        # Get the response token from the request
+        data = request.json
+        if not data or 'vp_token' not in data:
+            return jsonify({'error': 'Invalid response'}), 400
         
-        vp_token = data.get('vp_token')
-        state = data.get('state')
+        response_token = data['vp_token']
         
-        if not vp_token or not state:
-            return jsonify({'error': 'Missing required parameters'}), 400
+        # Verify the response
+        is_valid, claims = signature_service.verify_auth_response(response_token)
         
-        # Verify the presentation
-        result = oid4vp_service.verify_presentation(vp_token, state)
+        if not is_valid:
+            return jsonify({'error': 'Invalid token', 'details': claims}), 400
         
-        if not result['success']:
-            return jsonify({'error': result.get('error', 'Verification failed')}), 400
-        
-        file_id = result['file_id']
-        user_did = result['user_did']
+        # Extract the file ID from the request
+        # In a real implementation, this would be extracted from the JWT
+        # For this POC, we'll extract it from the state parameter
+        file_id = data.get('state', '').split('_')[-1]
         
         if file_id not in files_db:
             return jsonify({'error': 'File not found'}), 404
         
         # Get the file path
-        file_path = os.path.join(app.config['UPLOAD_FOLDER'], files_db[file_id]['filename'])
+        file_path = files_db[file_id]['path']
         
         # Sign the file
-        signature_result = signature_service.sign_file(file_path, user_did)
+        holder_did = claims.get('sub', 'unknown')
+        signature = signature_service.sign_file(file_path, holder_did)
         
         # Update file metadata
-        files_db[file_id]['signed'] = True
-        files_db[file_id]['signature'] = signature_result['jwt']
-        files_db[file_id]['signed_at'] = datetime.datetime.now().timestamp()
-        files_db[file_id]['user_did'] = user_did
-        files_db[file_id]['file_hash'] = signature_result['file_hash']
+        files_db[file_id]['status'] = 'signed'
+        files_db[file_id]['signature'] = signature
+        files_db[file_id]['signer'] = holder_did
         
-        # Save updated database
-        save_files_db()
+        # Save the updated files database
+        with open(FILES_DB_PATH, 'w') as f:
+            json.dump(files_db, f)
         
-        # Return success response
-        return jsonify({
-            'success': True,
-            'message': 'File signed successfully'
-        })
-    
+        return jsonify({'success': True}), 200
     except Exception as e:
-        return jsonify({
-            'success': False,
-            'error': str(e)
-        }), 500
+        logger.error(f"Error in auth_callback: {e}")
+        return jsonify({'error': str(e)}), 500
 
-@app.route('/api/check-signing-status/<file_id>', methods=['GET'])
-def check_signing_status(file_id):
-    """Check if a file has been signed"""
+@app.route('/api/signature-status/<file_id>')
+def signature_status(file_id):
+    """Check the signature status of a file"""
+    try:
+        # Check if file exists
+        if file_id not in files_db:
+            return jsonify({'error': 'File not found'}), 404
+        
+        # Get the file status
+        status = files_db[file_id]['status']
+        
+        return jsonify({'status': status}), 200
+    except Exception as e:
+        logger.error(f"Error in signature_status: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/share/<file_id>')
+def share_file(file_id):
+    """Page to share a signed file"""
+    # Check if file exists
     if file_id not in files_db:
-        return jsonify({'error': 'File not found'}), 404
+        return "File not found", 404
     
     file_data = files_db[file_id]
     
-    if file_data.get('signed'):
-        # Generate a verification link
-        verification_url = url_for('verify_file', 
-                                  file_id=file_id, 
-                                  signature=file_data['signature'], 
-                                  _external=True)
-        
-        return jsonify({
-            'success': True,
-            'signed': True,
-            'verification_url': verification_url
-        })
-    else:
-        return jsonify({
-            'success': True,
-            'signed': False
-        })
+    # Check if file is signed
+    if file_data['status'] != 'signed':
+        return "File is not signed yet", 400
+    
+    # Get the base URL for sharing
+    base_url = request.url_root.rstrip('/')
+    verification_url = f"{base_url}/verify/{file_id}"
+    
+    return render_template('share.html', 
+                          file_id=file_id, 
+                          file_data=file_data,
+                          verification_url=verification_url)
 
 @app.route('/api/send-link/<file_id>', methods=['POST'])
 def send_link(file_id):
-    if file_id not in files_db:
-        return jsonify({'error': 'File not found'}), 404
-    
-    if not files_db[file_id]['signed']:
-        return jsonify({'error': 'File not signed yet'}), 400
-    
-    # Get recipient from request
-    data = request.get_json()
-    if not data or 'recipient' not in data:
-        return jsonify({'error': 'Recipient not provided'}), 400
-    
-    recipient = data['recipient']
-    
-    # Generate verification link
-    verification_url = url_for('verify_file', 
-                              file_id=file_id, 
-                              signature=files_db[file_id]['signature'], 
-                              _external=True)
-    
-    # Create message text
-    message = f"You've received a signed file: {files_db[file_id]['original_filename']}. Verify and download it here: {verification_url}"
-    
-    # Send via Threema
-    result = threema_service.send_message(recipient, message)
-    
-    if result['success']:
-        return jsonify({
-            'success': True,
-            'message': f'Link sent to {recipient} via Threema',
-            'verification_url': verification_url,
-            'message_id': result.get('message_id')
-        })
-    else:
-        return jsonify({
-            'success': False,
-            'error': result.get('error', 'Unknown error sending message')
-        }), 500
+    """Send a verification link via Threema"""
+    try:
+        # Check if file exists
+        if file_id not in files_db:
+            return jsonify({'error': 'File not found'}), 404
+        
+        # Get the Threema ID from the request
+        data = request.json
+        if not data or 'threema_id' not in data:
+            return jsonify({'error': 'Threema ID is required'}), 400
+        
+        threema_id = data['threema_id']
+        
+        # Get the base URL for sharing
+        base_url = request.url_root.rstrip('/')
+        verification_url = f"{base_url}/verify/{file_id}"
+        
+        # Get the file name
+        filename = files_db[file_id]['filename']
+        
+        # Send the link via Threema
+        message = f"You have received a signed file: {filename}. Verify and download it here: {verification_url}"
+        result = threema_service.send_message(threema_id, message)
+        
+        if result['success']:
+            return jsonify({'success': True}), 200
+        else:
+            return jsonify({'error': result['error']}), 500
+    except Exception as e:
+        logger.error(f"Error in send_link: {e}")
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/verify/<file_id>')
 def verify_file(file_id):
+    """Page to verify and download a signed file"""
+    # Check if file exists
     if file_id not in files_db:
-        flash('File not found')
-        return redirect(url_for('index'))
+        return "File not found", 404
     
     file_data = files_db[file_id]
-    signature = request.args.get('signature')
     
-    # Check if signature matches
-    is_valid = file_data['signed'] and file_data['signature'] == signature
+    # Check if file is signed
+    if file_data['status'] != 'signed':
+        return "File is not signed", 400
+    
+    # Get the base URL for callbacks
+    base_url = request.url_root.rstrip('/')
+    
+    # Create authentication request for verification
+    auth_request = create_beta_id_auth_request(file_id, base_url)
+    
+    # Generate QR code
+    qr_code = generate_qr_code(auth_request)
     
     return render_template('verify.html', 
                           file_id=file_id, 
-                          file_data=file_data, 
-                          is_valid=is_valid,
-                          datetime=datetime)
+                          file_data=file_data,
+                          qr_code=qr_code,
+                          swiyu_url=auth_request)
 
-@app.route('/api/unsign/<file_id>', methods=['POST'])
-def api_unsign_file(file_id):
-    if file_id not in files_db:
-        return jsonify({'error': 'File not found'}), 404
-    
-    signature = request.args.get('signature')
-    if not signature or signature != files_db[file_id]['signature']:
-        return jsonify({'error': 'Invalid signature'}), 400
-    
-    # In a real implementation, this would verify the user's E-ID
-    # For this PoC, we'll simulate verification
-    
-    # Record the unsigning action
-    files_db[file_id]['unsigned'] = True
-    files_db[file_id]['unsigned_at'] = datetime.datetime.now().timestamp()
-    
-    # Save updated database
-    save_files_db()
-    
-    return jsonify({
-        'success': True,
-        'file_id': file_id,
-        'message': 'File successfully verified and unsigned'
-    })
+@app.route('/api/verify-signature/<file_id>', methods=['POST'])
+def verify_signature(file_id):
+    """Verify a file signature"""
+    try:
+        # Check if file exists
+        if file_id not in files_db:
+            return jsonify({'error': 'File not found'}), 404
+        
+        file_data = files_db[file_id]
+        
+        # Check if file is signed
+        if file_data['status'] != 'signed' or not file_data.get('signature'):
+            return jsonify({'error': 'File is not signed'}), 400
+        
+        # Get the file path
+        file_path = file_data['path']
+        
+        # Verify the signature
+        is_valid = signature_service.verify_file_signature(file_path, file_data['signature'])
+        
+        if is_valid:
+            return jsonify({'success': True, 'signer': file_data.get('signer', 'unknown')}), 200
+        else:
+            return jsonify({'error': 'Invalid signature'}), 400
+    except Exception as e:
+        logger.error(f"Error in verify_signature: {e}")
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/download/<file_id>')
 def download_file(file_id):
+    """Download a file"""
+    # Check if file exists
     if file_id not in files_db:
-        abort(404)
+        return "File not found", 404
     
     file_data = files_db[file_id]
-    return send_from_directory(app.config['UPLOAD_FOLDER'],
-                              file_data['filename'],
-                              as_attachment=True,
-                              download_name=file_data['original_filename'])
+    
+    # Get the file path
+    file_path = file_data['path']
+    
+    # Send the file
+    return send_file(file_path, as_attachment=True, download_name=file_data['filename'])
 
-# Initialize the application
+# Cleanup task for files older than 24 hours
+def cleanup_old_files():
+    """Remove files older than 24 hours"""
+    now = datetime.datetime.now().timestamp()
+    files_to_remove = []
+    
+    for file_id, file_data in files_db.items():
+        # Check if file is older than 24 hours
+        if now - file_data['timestamp'] > 24 * 60 * 60:
+            # Remove the file
+            try:
+                os.remove(file_data['path'])
+                files_to_remove.append(file_id)
+            except Exception as e:
+                logger.error(f"Error removing file {file_id}: {e}")
+    
+    # Remove the files from the database
+    for file_id in files_to_remove:
+        files_db.pop(file_id, None)
+    
+    # Save the updated files database
+    with open(FILES_DB_PATH, 'w') as f:
+        json.dump(files_db, f)
+
+# Run cleanup task on startup
+cleanup_old_files()
+
 if __name__ == '__main__':
-    # Create upload folder if it doesn't exist
-    os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
-    
-    # Load existing files database
-    load_files_db()
-    
-    # Start cleanup thread
-    cleanup_thread = threading.Thread(target=cleanup_expired_files, daemon=True)
-    cleanup_thread.start()
-    
-    # Run the app
     app.run(host='0.0.0.0', port=5000, debug=True)

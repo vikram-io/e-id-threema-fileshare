@@ -1,131 +1,215 @@
 import jwt
 import time
 import uuid
+import json
+import requests
 import base64
-import hashlib
 from cryptography.hazmat.primitives.asymmetric import ec
-from cryptography.hazmat.primitives import serialization, hashes
-from cryptography.hazmat.primitives.asymmetric import utils
+from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives.serialization import load_pem_private_key, Encoding, PrivateFormat, NoEncryption
 
-class SignatureService:
-    def __init__(self):
-        # Initialize cryptographic keys
-        self._init_keys()
+class SwiyuSignatureService:
+    """
+    Service for handling SWIYU beta credential signatures and verification
+    """
     
-    def _init_keys(self):
-        """Initialize or load cryptographic keys for signing"""
-        # In a production environment, these would be securely stored
-        # For this implementation, we'll generate new keys each time
-        self.private_key = ec.generate_private_key(ec.SECP256R1())
-        self.public_key = self.private_key.public_key()
+    def __init__(self, private_key_path=None):
+        """
+        Initialize the signature service
         
-        # Get the public key in PEM format for verification
-        self.public_key_pem = self.public_key.public_bytes(
-            encoding=serialization.Encoding.PEM,
-            format=serialization.PublicFormat.SubjectPublicKeyInfo
+        Args:
+            private_key_path: Path to the private key file for signing
+        """
+        self.private_key = None
+        if private_key_path:
+            with open(private_key_path, 'rb') as key_file:
+                self.private_key = load_pem_private_key(
+                    key_file.read(),
+                    password=None
+                )
+        else:
+            # Generate a new key for testing if none provided
+            self.private_key = ec.generate_private_key(ec.SECP256R1())
+        
+        # Store the public key in PEM format
+        self.public_key_pem = self.private_key.public_key().public_bytes(
+            encoding=Encoding.PEM,
+            format=PrivateFormat.PKCS8
         ).decode('utf-8')
     
-    def generate_file_hash(self, file_path):
+    def create_auth_request(self, file_id, callback_url, nonce=None):
         """
-        Generate a SHA-256 hash of the file content
+        Create an authentication request for the SWIYU Beta-ID
         
         Args:
-            file_path (str): Path to the file
+            file_id: The ID of the file to be signed
+            callback_url: The callback URL for the authentication response
+            nonce: Optional nonce for the request
             
         Returns:
-            str: Base64-encoded hash of the file
+            JWT token for the authentication request
         """
-        sha256_hash = hashlib.sha256()
+        # Create a nonce if not provided
+        if not nonce:
+            nonce = str(uuid.uuid4())
         
-        with open(file_path, "rb") as f:
-            # Read the file in chunks to handle large files
-            for byte_block in iter(lambda: f.read(4096), b""):
-                sha256_hash.update(byte_block)
+        # Current time
+        now = int(time.time())
         
-        # Get the digest and encode as base64
-        digest = sha256_hash.digest()
-        return base64.b64encode(digest).decode('utf-8')
-    
-    def sign_file(self, file_path, user_did):
-        """
-        Create a cryptographic signature for a file
-        
-        Args:
-            file_path (str): Path to the file
-            user_did (str): DID of the user who authenticated
-            
-        Returns:
-            dict: Signature data including JWT
-        """
-        # Generate file hash
-        file_hash = self.generate_file_hash(file_path)
-        
-        # Create signature payload
+        # Create the JWT payload according to SWIYU beta requirements
         payload = {
-            "iss": "did:webvh:verifier",  # In production, this would be our actual DID
-            "sub": user_did,
-            "iat": int(time.time()),
-            "exp": int(time.time()) + 86400,  # 24 hours
-            "jti": str(uuid.uuid4()),
-            "file_hash": file_hash,
-            "hash_alg": "SHA-256"
+            "vct": "betaid-sdjwt",  # Credential type for beta
+            "iss": f"did:example:verifier:{file_id}",  # Issuer identifier
+            "sub": "did:example:holder",  # Subject identifier (will be replaced by actual holder)
+            "iat": now,  # Issued at
+            "exp": now + 3600,  # Expires in 1 hour
+            "nbf": now,  # Not valid before now
+            "jti": nonce,  # JWT ID
+            "response_type": "vp_token",  # Request a verifiable presentation token
+            "response_mode": "direct_post",  # Direct post response mode
+            "client_id": callback_url,  # Client ID is the callback URL
+            "redirect_uri": f"{callback_url}/callback",  # Redirect URI
+            "presentation_definition": {
+                "id": f"sign-request-{file_id}",
+                "input_descriptors": [
+                    {
+                        "id": "beta-id",
+                        "format": {
+                            "jwt_vp": {
+                                "alg": ["ES256"]
+                            }
+                        },
+                        "constraints": {
+                            "fields": [
+                                {
+                                    "path": ["$.vct"],
+                                    "filter": {
+                                        "type": "string",
+                                        "const": "betaid-sdjwt"
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                ]
+            }
         }
         
-        # In a real implementation, we would sign with our private key
-        # For this implementation, we'll use a simple JWT
-        signature_jwt = jwt.encode(payload, "secret_key", algorithm="HS256")
-        
-        return {
-            "jwt": signature_jwt,
-            "file_hash": file_hash,
-            "user_did": user_did,
-            "timestamp": int(time.time())
+        # Create the JWT headers
+        headers = {
+            "typ": "JWT",
+            "alg": "ES256",
+            "kid": f"did:example:verifier:{file_id}#key-1"
         }
+        
+        # Sign the JWT
+        token = jwt.encode(
+            payload=payload,
+            key=self.private_key,
+            algorithm="ES256",
+            headers=headers
+        )
+        
+        return token
     
-    def verify_signature(self, signature_jwt, file_path):
+    def verify_auth_response(self, response_token):
+        """
+        Verify an authentication response from the SWIYU Beta-ID
+        
+        Args:
+            response_token: The JWT token from the authentication response
+            
+        Returns:
+            Tuple of (is_valid, claims) where is_valid is a boolean and claims is the decoded token
+        """
+        try:
+            # In a real implementation, you would:
+            # 1. Verify the signature using the public key of the issuer
+            # 2. Check the token hasn't expired
+            # 3. Validate the claims against your requirements
+            
+            # For this proof of concept, we'll just decode the token without verification
+            # and assume it's valid if it can be decoded
+            decoded = jwt.decode(
+                response_token,
+                options={"verify_signature": False}
+            )
+            
+            # Check if this is a beta-id credential
+            if decoded.get("vct") != "betaid-sdjwt":
+                return False, {"error": "Not a valid Beta-ID credential"}
+            
+            return True, decoded
+            
+        except Exception as e:
+            return False, {"error": str(e)}
+    
+    def sign_file(self, file_path, holder_did):
+        """
+        Sign a file using the SWIYU Beta-ID credentials
+        
+        Args:
+            file_path: Path to the file to sign
+            holder_did: DID of the holder who authenticated
+            
+        Returns:
+            Signature data
+        """
+        # In a real implementation, you would:
+        # 1. Hash the file
+        # 2. Sign the hash with the private key
+        # 3. Create a signature object with metadata
+        
+        # For this proof of concept, we'll create a mock signature
+        with open(file_path, 'rb') as f:
+            file_hash = hashes.Hash(hashes.SHA256())
+            # Read in chunks to handle large files
+            chunk = f.read(8192)
+            while chunk:
+                file_hash.update(chunk)
+                chunk = f.read(8192)
+            digest = file_hash.finalize()
+        
+        # Create a signature timestamp
+        timestamp = int(time.time())
+        
+        # Create a signature object
+        signature = {
+            "file_hash": base64.b64encode(digest).decode('utf-8'),
+            "algorithm": "SHA256withECDSA",
+            "signer": holder_did,
+            "timestamp": timestamp,
+            "signature_type": "beta-id"
+        }
+        
+        return signature
+    
+    def verify_file_signature(self, file_path, signature_data):
         """
         Verify a file signature
         
         Args:
-            signature_jwt (str): JWT containing the signature
-            file_path (str): Path to the file
+            file_path: Path to the file to verify
+            signature_data: Signature data from sign_file
             
         Returns:
-            dict: Verification result
+            Boolean indicating if the signature is valid
         """
-        try:
-            # In a real implementation, we would verify the JWT signature
-            # For this implementation, we'll decode without verification
-            signature_data = jwt.decode(
-                signature_jwt, 
-                options={"verify_signature": False}
-            )
-            
-            # Generate file hash
-            file_hash = self.generate_file_hash(file_path)
-            
-            # Compare with the hash in the signature
-            if signature_data.get("file_hash") != file_hash:
-                return {
-                    "success": False,
-                    "error": "File hash mismatch"
-                }
-            
-            # In a real implementation, we would:
-            # 1. Verify the JWT signature using the issuer's public key
-            # 2. Validate the issuer's DID against the Trust Registry
-            # 3. Check for revocation
-            
-            return {
-                "success": True,
-                "user_did": signature_data.get("sub"),
-                "timestamp": signature_data.get("iat")
-            }
-        except Exception as e:
-            return {
-                "success": False,
-                "error": str(e)
-            }
-
-# Singleton instance
-signature_service = SignatureService()
+        # In a real implementation, you would:
+        # 1. Hash the file
+        # 2. Verify the signature using the public key of the signer
+        # 3. Check the signature metadata
+        
+        # For this proof of concept, we'll just check if the file hash matches
+        with open(file_path, 'rb') as f:
+            file_hash = hashes.Hash(hashes.SHA256())
+            # Read in chunks to handle large files
+            chunk = f.read(8192)
+            while chunk:
+                file_hash.update(chunk)
+                chunk = f.read(8192)
+            digest = file_hash.finalize()
+        
+        # Compare the hash
+        expected_hash = base64.b64decode(signature_data["file_hash"])
+        return digest == expected_hash

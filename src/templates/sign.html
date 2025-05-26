@@ -3,248 +3,162 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Sign File with E-ID</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <title>Sign with SWIYU App</title>
     <style>
         body {
-            padding-top: 2rem;
-            padding-bottom: 2rem;
-            background-color: #f8f9fa;
+            font-family: 'Helvetica Neue', Arial, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
         }
         .container {
-            max-width: 800px;
+            background-color: #f9f9f9;
+            border-radius: 8px;
+            padding: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
         }
-        .card {
-            margin-bottom: 2rem;
-            border-radius: 10px;
-            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-        }
-        .card-header {
-            background-color: #6c757d;
-            color: white;
-            font-weight: bold;
-            border-top-left-radius: 10px;
-            border-top-right-radius: 10px;
-        }
-        .btn-primary {
-            background-color: #0d6efd;
-            border-color: #0d6efd;
-        }
-        .btn-primary:hover {
-            background-color: #0b5ed7;
-            border-color: #0a58ca;
+        h1 {
+            color: #E30613; /* Swiss red */
+            margin-bottom: 20px;
         }
         .file-info {
-            background-color: #e9ecef;
-            padding: 1rem;
-            border-radius: 8px;
-            margin-bottom: 1rem;
+            background-color: #fff;
+            border-radius: 4px;
+            padding: 15px;
+            margin-bottom: 20px;
+            border: 1px solid #ddd;
         }
-        #qr-code {
+        .qr-container {
             text-align: center;
-            margin: 1rem 0;
-            display: none;
+            margin: 30px 0;
         }
-        #success-message {
-            display: none;
+        .qr-code {
+            display: inline-block;
+            padding: 15px;
+            background-color: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            cursor: pointer; /* Indicate it's clickable */
         }
-        #threema-form {
-            display: none;
+        .qr-code img {
+            max-width: 100%;
+            height: auto;
+        }
+        .instructions {
+            background-color: #fff;
+            border-left: 4px solid #E30613;
+            padding: 15px;
+            margin-bottom: 20px;
+        }
+        .button {
+            background-color: #E30613;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+            margin-top: 10px;
+        }
+        .button:hover {
+            background-color: #c00;
+        }
+        @media (max-width: 600px) {
+            body {
+                padding: 10px;
+            }
+            .qr-code {
+                width: 80%;
+            }
         }
     </style>
 </head>
 <body>
     <div class="container">
-        <h1 class="text-center mb-4">Sign File with E-ID</h1>
+        <h1>Sign with SWIYU App</h1>
         
-        <div class="card">
-            <div class="card-header">
-                File Information
-            </div>
-            <div class="card-body">
-                <div class="file-info">
-                    <p><strong>Filename:</strong> <span id="filename">{{ file_data['original_filename'] }}</span></p>
-                    <p><strong>Size:</strong> <span id="filesize">{{ '{:.2f}'.format(file_data['size'] / 1024 / 1024) }} MB</span></p>
-                    <p><strong>Uploaded:</strong> <span id="upload-time">{{ file_data['timestamp']|int|datetime }}</span></p>
-                </div>
-                
-                <div id="signing-section">
-                    <p>To sign this file with your E-ID, click the button below:</p>
-                    <button id="sign-button" class="btn btn-primary btn-lg w-100">Sign with E-ID</button>
-                    
-                    <div id="qr-code">
-                        <p>Scan this QR code with your E-ID app to sign the file:</p>
-                        <img src="https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=https://example.com/sign/{{ file_id }}" alt="QR Code">
-                        <p class="text-muted">Note: In a real implementation, this would connect to the actual E-ID system.</p>
-                    </div>
-                </div>
-                
-                <div id="success-message" class="alert alert-success mt-3">
-                    <h4 class="alert-heading">File Signed Successfully!</h4>
-                    <p>Your file has been signed with your E-ID. You can now share it securely.</p>
-                    <hr>
-                    <p class="mb-0">Verification Link: <a id="verification-link" href="#" target="_blank">View Link</a></p>
-                </div>
-                
-                <div id="threema-form" class="mt-4">
-                    <h4>Share via Threema</h4>
-                    <div class="mb-3">
-                        <label for="threema-id" class="form-label">Recipient's Threema ID</label>
-                        <input type="text" class="form-control" id="threema-id" placeholder="XXXXXXXX">
-                    </div>
-                    <button id="send-button" class="btn btn-primary">Send Link</button>
-                    <div id="send-result" class="mt-2"></div>
-                </div>
-            </div>
+        <div class="file-info">
+            <h3>{{ file_data['filename'] }}</h3>
+            <p><strong>Size:</strong> {{ file_data['size'] }}</p>
+            <p><strong>Uploaded:</strong> <span id="upload-time">{{ file_data['timestamp']|int|datetime }}</span></p>
         </div>
         
-        <div class="d-grid gap-2">
-            <a href="/" class="btn btn-secondary">Back to Home</a>
+        <div class="qr-container">
+            <p>Scan this QR code with your SWIYU App to sign the file:</p>
+            <div class="qr-code" id="qrCode" onclick="openSWIYUApp()">
+                <img src="{{ qr_code }}" alt="QR Code for SWIYU App">
+            </div>
+            <p><small>Tap the QR code to open the SWIYU App</small></p>
+        </div>
+        
+        <div class="instructions">
+            <p><strong>Instructions:</strong></p>
+            <ol>
+                <li>Open your SWIYU App and scan this code.</li>
+                <li>Follow the prompts in the app to authenticate.</li>
+                <li>Once complete, the file will be signed with your credentials.</li>
+            </ol>
+        </div>
+        
+        <div style="text-align: center;">
+            <button class="button" onclick="checkSignatureStatus()">Check Signature Status</button>
+            <button class="button" onclick="window.location.href='/'">Cancel</button>
         </div>
     </div>
 
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script>
-        document.addEventListener('DOMContentLoaded', function() {
-            const signButton = document.getElementById('sign-button');
-            const qrCode = document.getElementById('qr-code');
-            const successMessage = document.getElementById('success-message');
-            const threemaForm = document.getElementById('threema-form');
-            const verificationLink = document.getElementById('verification-link');
-            const sendButton = document.getElementById('send-button');
-            const threemaId = document.getElementById('threema-id');
-            const sendResult = document.getElementById('send-result');
-            
-            // Sign button click
-            signButton.addEventListener('click', function() {
-                // Disable the button to prevent multiple clicks
-                signButton.disabled = true;
-                
-                // Call the API to initiate the E-ID signing process
-                fetch('/api/sign/{{ file_id }}', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    }
-                })
+        // Store file ID for status checking
+        const fileId = "{{ file_id }}";
+        
+        // Function to check signature status
+        function checkSignatureStatus() {
+            fetch(`/api/signature-status/${fileId}`)
                 .then(response => response.json())
                 .then(data => {
-                    if (data.success) {
-                        // Display the QR code for the E-ID app
-                        // Store the deep link data
-                        const deepLinkData = JSON.parse(data.deep_link);
-                        
-                        // Create QR code with tap-to-launch functionality
-                        qrCode.innerHTML = `
-                            <p>Scan this QR code with your SWIYU App to sign the file:</p>
-                            <a href="${deepLinkData.primary}" id="qr-link" class="qr-code-link">
-                                <img src="${data.image}" alt="QR Code">
-                                <p class="text-muted">Tap the QR code to open SWIYU App or scan with your camera.</p>
-                            </a>
-                        `;
-                        
-                        // Add fallback handling for iOS
-                        const qrLink = document.getElementById('qr-link');
-                        qrLink.addEventListener('click', function(e) {
-                            // Start a timer to check if the app was opened
-                            const start = Date.now();
-                            setTimeout(function() {
-                                // If we're still here after 2 seconds, the app didn't open
-                                if (Date.now() - start > 2000) {
-                                    // Try the fallback URL
-                                    window.location = deepLinkData.fallback;
-                                }
-                            }, 2000);
-                        });
-                        qrCode.style.display = 'block';
-                        
-                        // Start polling for signing status
-                        const checkInterval = setInterval(function() {
-                            fetch(`/api/check-signing-status/${encodeURIComponent('{{ file_id }}')}`)
-                                .then(response => response.json())
-                                .then(statusData => {
-                                    if (statusData.success && statusData.signed) {
-                                        // Clear the interval
-                                        clearInterval(checkInterval);
-                                        
-                                        // Hide QR code
-                                        qrCode.style.display = 'none';
-                                        
-                                        // Show success message
-                                        successMessage.style.display = 'block';
-                                        
-                                        // Show Threema form
-                                        threemaForm.style.display = 'block';
-                                        
-                                        // Set verification link
-                                        verificationLink.href = statusData.verification_url;
-                                        verificationLink.textContent = statusData.verification_url;
-                                    }
-                                })
-                                .catch(error => {
-                                    console.error('Error checking signing status:', error);
-                                });
-                        }, 2000); // Check every 2 seconds
-                        
-                        // Set a timeout to stop checking after 5 minutes
-                        setTimeout(function() {
-                            clearInterval(checkInterval);
-                            if (!successMessage.style.display || successMessage.style.display === 'none') {
-                                alert('Signing process timed out. Please try again.');
-                                signButton.disabled = false;
-                                qrCode.style.display = 'none';
-                            }
-                        }, 5 * 60 * 1000); // 5 minutes
+                    if (data.status === "completed") {
+                        window.location.href = `/share/${fileId}`;
                     } else {
-                        alert('Error initiating signing process: ' + data.error);
-                        signButton.disabled = false;
+                        alert("Signature not yet completed. Please complete the signing process in the SWIYU App.");
                     }
                 })
                 .catch(error => {
-                    console.error('Error:', error);
-                    alert('An error occurred while initiating the signing process.');
-                    signButton.disabled = false;
+                    console.error('Error checking signature status:', error);
+                    alert("Error checking signature status. Please try again.");
                 });
-            });
+        }
+        
+        // Function to open SWIYU App on mobile devices
+        function openSWIYUApp() {
+            // Get the QR code data (the URL encoded in the QR)
+            const swiyuUrl = "{{ swiyu_url }}";
             
-            // Send button click
-            sendButton.addEventListener('click', function() {
-                const recipient = threemaId.value.trim();
+            // Check if on mobile device
+            if (/iPhone|iPad|iPod|Android/i.test(navigator.userAgent)) {
+                // Try to open the SWIYU app with the URL
+                window.location.href = swiyuUrl;
                 
-                if (!recipient) {
-                    alert('Please enter a Threema ID');
-                    return;
-                }
-                
-                sendButton.disabled = true;
-                sendResult.innerHTML = '<div class="spinner-border spinner-border-sm text-primary" role="status"><span class="visually-hidden">Loading...</span></div> Sending...';
-                
-                // Call the API to send the link
-                fetch('/api/send-link/{{ file_id }}', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify({
-                        recipient: recipient
-                    })
-                })
-                .then(response => response.json())
-                .then(data => {
-                    if (data.success) {
-                        sendResult.innerHTML = '<div class="alert alert-success">Link sent successfully!</div>';
-                    } else {
-                        sendResult.innerHTML = '<div class="alert alert-danger">Error: ' + data.error + '</div>';
-                        sendButton.disabled = false;
+                // Set a timeout to check if app was opened
+                setTimeout(function() {
+                    // If we're still here, the app might not be installed
+                    // You could redirect to app store or show a message
+                    if (confirm("SWIYU App not detected. Would you like to download it?")) {
+                        // Link to App Store for iOS
+                        if (/iPhone|iPad|iPod/i.test(navigator.userAgent)) {
+                            window.location.href = "https://apps.apple.com/ch/app/swiyu/id1234567890";
+                        }
+                        // Link to Play Store for Android
+                        else if (/Android/i.test(navigator.userAgent)) {
+                            window.location.href = "https://play.google.com/store/apps/details?id=ch.admin.swiyu";
+                        }
                     }
-                })
-                .catch(error => {
-                    console.error('Error:', error);
-                    sendResult.innerHTML = '<div class="alert alert-danger">An error occurred while sending the link.</div>';
-                    sendButton.disabled = false;
-                });
-            });
-        });
+                }, 2000);
+            } else {
+                // On desktop, just show a message
+                alert("Please scan this QR code with your SWIYU App on your mobile device.");
+            }
+        }
     </script>
 </body>
 </html>
