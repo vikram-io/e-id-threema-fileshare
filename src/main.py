@@ -6,7 +6,7 @@ import logging
 import datetime
 from flask import Flask, render_template, request, redirect, url_for, jsonify, send_file
 from werkzeug.utils import secure_filename
-from src.oid4vp.qr_code import generate_qr_code, create_beta_id_auth_request
+from src.oid4vp.qr_code import generate_qr_code, create_presentation_request
 from src.oid4vp.signature import SwiyuSignatureService
 from src.threema_service import ThreemaService
 
@@ -113,8 +113,8 @@ def sign_file(file_id):
     # Get the base URL for callbacks
     base_url = request.url_root.rstrip('/')
     
-    # Create authentication request for SWIYU app
-    auth_request = create_beta_id_auth_request(file_id, base_url)
+    # Create presentation request for SWIYU app
+    auth_request = create_presentation_request(file_id, base_url)
     
     # Generate QR code
     qr_code = generate_qr_code(auth_request)
@@ -125,9 +125,9 @@ def sign_file(file_id):
                           qr_code=qr_code,
                           swiyu_url=auth_request)
 
-@app.route('/api/auth-request/<file_id>')
-def get_auth_request(file_id):
-    """Endpoint to get the authentication request JWT"""
+@app.route('/api/presentation-request/<file_id>')
+def get_presentation_request(file_id):
+    """Endpoint to get the presentation request JWT"""
     try:
         # Check if file exists
         if file_id not in files_db:
@@ -136,17 +136,17 @@ def get_auth_request(file_id):
         # Get the base URL for callbacks
         base_url = request.url_root.rstrip('/')
         
-        # Create a real JWT for the authentication request
-        token = signature_service.create_auth_request(file_id, base_url)
+        # Create a real JWT for the presentation request
+        token = signature_service.create_presentation_request(file_id, base_url)
         
         return jsonify({'token': token}), 200
     except Exception as e:
-        logger.error(f"Error in get_auth_request: {e}")
+        logger.error(f"Error in get_presentation_request: {e}")
         return jsonify({'error': str(e)}), 500
 
 @app.route('/callback', methods=['POST'])
-def auth_callback():
-    """Callback endpoint for SWIYU app authentication responses"""
+def presentation_callback():
+    """Callback endpoint for SWIYU app presentation responses"""
     try:
         # Get the response token from the request
         data = request.json
@@ -156,7 +156,7 @@ def auth_callback():
         response_token = data['vp_token']
         
         # Verify the response
-        is_valid, claims = signature_service.verify_auth_response(response_token)
+        is_valid, claims = signature_service.verify_presentation_response(response_token)
         
         if not is_valid:
             return jsonify({'error': 'Invalid token', 'details': claims}), 400
@@ -187,7 +187,7 @@ def auth_callback():
         
         return jsonify({'success': True}), 200
     except Exception as e:
-        logger.error(f"Error in auth_callback: {e}")
+        logger.error(f"Error in presentation_callback: {e}")
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/signature-status/<file_id>')
@@ -278,8 +278,8 @@ def verify_file(file_id):
     # Get the base URL for callbacks
     base_url = request.url_root.rstrip('/')
     
-    # Create authentication request for verification
-    auth_request = create_beta_id_auth_request(file_id, base_url)
+    # Create presentation request for verification
+    auth_request = create_presentation_request(file_id, base_url)
     
     # Generate QR code
     qr_code = generate_qr_code(auth_request)

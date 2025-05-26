@@ -14,11 +14,11 @@ def generate_qr_code(auth_url, size=300):
     Returns:
         Base64 encoded image data
     """
-    # For SWIYU app, we need to use the swiyu://oidc protocol instead of swiyu://auth
-    # This ensures the QR code is recognized by the SWIYU app
+    # For SWIYU app, we need to use the correct protocol format
+    # This ensures the QR code is recognized by the SWIYU app for presentation requests
     if not auth_url.startswith('swiyu://'):
-        # Encode the URL properly for the SWIYU app
-        swiyu_url = f'swiyu://oidc?request_uri={quote(auth_url)}'
+        # Use presentation request format instead of credential offer
+        swiyu_url = f'swiyu://present?request_uri={quote(auth_url)}'
     else:
         swiyu_url = auth_url
     
@@ -46,13 +46,13 @@ def generate_qr_code(auth_url, size=300):
     
     return f"data:image/png;base64,{img_str}"
 
-def create_beta_id_auth_request(file_id, callback_url):
+def create_presentation_request(file_id, callback_url):
     """
-    Create an authentication request for the SWIYU Beta-ID
+    Create a presentation request for the SWIYU App to use existing credentials
     
     Args:
         file_id: The ID of the file to be signed
-        callback_url: The callback URL for the authentication response
+        callback_url: The callback URL for the presentation response
         
     Returns:
         Authentication URL for QR code
@@ -60,15 +60,15 @@ def create_beta_id_auth_request(file_id, callback_url):
     # In a real implementation, this would generate a proper JWT
     # with the correct claims and signature as per the SWIYU documentation
     
-    # For the beta environment, we need to use the correct credential type
-    # and follow the OID4VP protocol requirements
+    # For using existing credentials, we need to use the presentation request format
+    # not the credential offer format
     
     # This is a simplified version - in production, you would:
-    # 1. Generate a proper JWT with the correct headers and claims
+    # 1. Generate a proper JWT with the correct headers and claims for presentation request
     # 2. Sign it with the appropriate key
     # 3. Set up proper callback handling
     
-    # For now, we'll create a mock URL that follows the SWIYU protocol format
-    auth_url = f"swiyu://oidc?request_uri={callback_url}/api/auth-request/{file_id}"
+    # For now, we'll create a mock URL that follows the SWIYU protocol format for presentations
+    auth_url = f"swiyu://present?request_uri={callback_url}/api/presentation-request/{file_id}"
     
     return auth_url

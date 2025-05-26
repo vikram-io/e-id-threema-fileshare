@@ -137,12 +137,18 @@
             // Check if on mobile device
             if (/iPhone|iPad|iPod|Android/i.test(navigator.userAgent)) {
                 // Try to open the SWIYU app with the URL
+                // Use the correct URL scheme for SWIYU app
                 window.location.href = swiyuUrl;
                 
                 // Set a timeout to check if app was opened
                 setTimeout(function() {
                     // If we're still here, the app might not be installed
-                    // You could redirect to app store or show a message
+                    if (document.hidden) {
+                        // App was opened successfully
+                        return;
+                    }
+                    
+                    // App wasn't opened, show download prompt
                     if (confirm("SWIYU App not detected. Would you like to download it?")) {
                         // Link to App Store for iOS
                         if (/iPhone|iPad|iPod/i.test(navigator.userAgent)) {

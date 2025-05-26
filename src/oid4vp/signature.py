@@ -10,7 +10,7 @@ from cryptography.hazmat.primitives.serialization import load_pem_private_key, E
 
 class SwiyuSignatureService:
     """
-    Service for handling SWIYU beta credential signatures and verification
+    Service for handling SWIYU presentation requests and signature verification
     """
     
     def __init__(self, private_key_path=None):
@@ -37,17 +37,17 @@ class SwiyuSignatureService:
             format=PrivateFormat.PKCS8
         ).decode('utf-8')
     
-    def create_auth_request(self, file_id, callback_url, nonce=None):
+    def create_presentation_request(self, file_id, callback_url, nonce=None):
         """
-        Create an authentication request for the SWIYU Beta-ID
+        Create a presentation request for the SWIYU App to use existing credentials
         
         Args:
             file_id: The ID of the file to be signed
-            callback_url: The callback URL for the authentication response
+            callback_url: The callback URL for the presentation response
             nonce: Optional nonce for the request
             
         Returns:
-            JWT token for the authentication request
+            JWT token for the presentation request
         """
         # Create a nonce if not provided
         if not nonce:
@@ -56,11 +56,9 @@ class SwiyuSignatureService:
         # Current time
         now = int(time.time())
         
-        # Create the JWT payload according to SWIYU beta requirements
+        # Create the JWT payload for a presentation request (not credential offer)
         payload = {
-            "vct": "betaid-sdjwt",  # Credential type for beta
             "iss": f"did:example:verifier:{file_id}",  # Issuer identifier
-            "sub": "did:example:holder",  # Subject identifier (will be replaced by actual holder)
             "iat": now,  # Issued at
             "exp": now + 3600,  # Expires in 1 hour
             "nbf": now,  # Not valid before now
@@ -73,7 +71,7 @@ class SwiyuSignatureService:
                 "id": f"sign-request-{file_id}",
                 "input_descriptors": [
                     {
-                        "id": "beta-id",
+                        "id": "swiyu-credential",
                         "format": {
                             "jwt_vp": {
                                 "alg": ["ES256"]
@@ -82,10 +80,10 @@ class SwiyuSignatureService:
                         "constraints": {
                             "fields": [
                                 {
-                                    "path": ["$.vct"],
+                                    "path": ["$.type"],
                                     "filter": {
                                         "type": "string",
-                                        "const": "betaid-sdjwt"
+                                        "pattern": "VerifiablePresentation"
                                     }
                                 }
                             ]
@@ -112,12 +110,12 @@ class SwiyuSignatureService:
         
         return token
     
-    def verify_auth_response(self, response_token):
+    def verify_presentation_response(self, response_token):
         """
-        Verify an authentication response from the SWIYU Beta-ID
+        Verify a presentation response from the SWIYU App
         
         Args:
-            response_token: The JWT token from the authentication response
+            response_token: The JWT token from the presentation response
             
         Returns:
             Tuple of (is_valid, claims) where is_valid is a boolean and claims is the decoded token
@@ -135,9 +133,9 @@ class SwiyuSignatureService:
                 options={"verify_signature": False}
             )
             
-            # Check if this is a beta-id credential
-            if decoded.get("vct") != "betaid-sdjwt":
-                return False, {"error": "Not a valid Beta-ID credential"}
+            # Check if this is a valid presentation
+            if "vp" not in decoded:
+                return False, {"error": "Not a valid presentation response"}
             
             return True, decoded
             
@@ -146,7 +144,7 @@ class SwiyuSignatureService:
     
     def sign_file(self, file_path, holder_did):
         """
-        Sign a file using the SWIYU Beta-ID credentials
+        Sign a file using the SWIYU presentation response
         
         Args:
             file_path: Path to the file to sign
@@ -179,7 +177,7 @@ class SwiyuSignatureService:
             "algorithm": "SHA256withECDSA",
             "signer": holder_did,
             "timestamp": timestamp,
-            "signature_type": "beta-id"
+            "signature_type": "swiyu-presentation"
         }
         
         return signature
