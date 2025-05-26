@@ -176,8 +176,8 @@ def api_sign_file(file_id):
     # Generate the authorization URL
     auth_url = oid4vp_service.get_auth_url(request_data['jwt'])
     
-    # Generate QR code
-    qr_code_data = generate_qr_code(auth_url)
+    # Generate QR code with deep link support
+    qr_code_result = generate_qr_code(auth_url)
     
     # Store request data in session
     files_db[file_id]['auth_request'] = {
@@ -193,7 +193,8 @@ def api_sign_file(file_id):
         'success': True,
         'file_id': file_id,
         'auth_url': auth_url,
-        'qr_code': qr_code_data,
+        'image': qr_code_result['image'],
+        'deep_link': qr_code_result['deep_link'],
         'state': request_data['state']
     })
 
