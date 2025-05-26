@@ -11,6 +11,7 @@ from src.threema_service import threema_service
 from src.oid4vp.service import oid4vp_service
 from src.oid4vp.qr_code import generate_qr_code
 from src.oid4vp.signature import signature_service
+from src.filters import datetime_filter
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))  # DON'T CHANGE THIS !!!
 
@@ -20,8 +21,24 @@ app.config['MAX_CONTENT_LENGTH'] = 100 * 1024 * 1024  # 100MB max upload size
 app.config['UPLOAD_FOLDER'] = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'static', 'uploads')
 app.config['ALLOWED_EXTENSIONS'] = set(['*'])  # Allow all file types
 
+# Register Jinja2 filters
+app.jinja_env.filters['datetime'] = datetime_filter
+
+# Ensure upload directory exists
+os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
+app.logger.info(f"Upload folder set to: {app.config['UPLOAD_FOLDER']}")
+
 # Store file metadata
 files_db = {}
+
+# Function to ensure the database file exists
+def ensure_db_file():
+    db_path = os.path.join(app.config['UPLOAD_FOLDER'], 'files_db.json')
+    os.makedirs(os.path.dirname(db_path), exist_ok=True)
+    if not os.path.exists(db_path):
+        with open(db_path, 'w') as f:
+            json.dump({}, f)
+    return db_path
 
 # Function to check if a file should be deleted (older than 24 hours)
 def is_expired(timestamp):
@@ -59,62 +76,82 @@ def cleanup_expired_files():
 def save_files_db():
     with open(os.path.join(app.config['UPLOAD_FOLDER'], 'files_db.json'), 'w') as f:
         json.dump(files_db, f)
-
-# Load files database from disk
+# Load file metadata from JSON file
 def load_files_db():
     global files_db
-    db_path = os.path.join(app.config['UPLOAD_FOLDER'], 'files_db.json')
-    if os.path.exists(db_path):
-        try:
-            with open(db_path, 'r') as f:
-                files_db = json.load(f)
-        except:
-            files_db = {}
+    try:
+        db_path = ensure_db_file()
+        with open(db_path, 'r') as f:
+            files_db = json.load(f)
+        app.logger.info(f"Loaded file database with {len(files_db)} entries")
+    except Exception as e:
+        app.logger.error(f"Error loading file database: {str(e)}")
+        files_db = {}
 
-# Routes
 @app.route('/')
 def index():
     return render_template('index.html')
 
 @app.route('/upload', methods=['POST'])
 def upload_file():
-    if 'file' not in request.files:
-        flash('No file part')
-        return redirect(request.url)
-    
-    file = request.files['file']
-    
-    if file.filename == '':
-        flash('No selected file')
-        return redirect(request.url)
-    
-    if file:
-        # Generate a unique filename
-        original_filename = secure_filename(file.filename)
-        file_id = str(uuid.uuid4())
-        filename = f"{file_id}_{original_filename}"
+    try:
+        # Ensure upload directory exists
+        os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
         
-        # Save the file
-        file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-        file.save(file_path)
+        if 'file' not in request.files:
+            app.logger.error("No file part in request")
+            flash('No file part')
+            return redirect(request.url)
         
-        # Store file metadata
-        files_db[file_id] = {
-            'filename': filename,
-            'original_filename': original_filename,
-            'timestamp': datetime.datetime.now().timestamp(),
-            'size': os.path.getsize(file_path),
-            'signed': False,
-            'signature': None
-        }
+        file = request.files['file']
         
-        # Save updated database
-        save_files_db()
+        if file.filename == '':
+            app.logger.error("No selected file")
+            flash('No selected file')
+            return redirect(request.url)
         
-        # Redirect to signing page
-        return redirect(url_for('sign_file', file_id=file_id))
-    
-    return redirect(url_for('index'))
+        if file:
+            # Generate a unique filename
+            original_filename = secure_filename(file.filename)
+            file_id = str(uuid.uuid4())
+            filename = f"{file_id}_{original_filename}"
+            
+            # Save the file
+            file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+            app.logger.info(f"Saving file to: {file_path}")
+            file.save(file_path)
+            
+            # Verify file was saved
+            if not os.path.exists(file_path):
+                app.logger.error(f"Failed to save file to {file_path}")
+                flash('Error saving file')
+                return redirect(request.url)
+            
+            # Store file metadata
+            files_db[file_id] = {
+                'filename': filename,
+                'original_filename': original_filename,
+                'timestamp': datetime.datetime.now().timestamp(),
+                'size': os.path.getsize(file_path),
+                'signed': False,
+                'signature': None
+            }
+            
+            # Save updated database
+            try:
+                save_files_db()
+            except Exception as e:
+                app.logger.error(f"Error saving file database: {str(e)}")
+                # Continue anyway, as this is not critical
+            
+            # Redirect to signing page
+            return redirect(url_for('sign_file', file_id=file_id))
+        
+        return redirect(url_for('index'))
+    except Exception as e:
+        app.logger.error(f"Upload error: {str(e)}")
+        flash(f'An error occurred during upload: {str(e)}')
+        return redirect(url_for('index'))
 
 @app.route('/sign/<file_id>')
 def sign_file(file_id):

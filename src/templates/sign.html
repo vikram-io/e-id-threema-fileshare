@@ -65,7 +65,7 @@
                 <div class="file-info">
                     <p><strong>Filename:</strong> <span id="filename">{{ file_data['original_filename'] }}</span></p>
                     <p><strong>Size:</strong> <span id="filesize">{{ '{:.2f}'.format(file_data['size'] / 1024 / 1024) }} MB</span></p>
-                    <p><strong>Uploaded:</strong> <span id="upload-time">{{ datetime.datetime.fromtimestamp(file_data['timestamp']).strftime('%Y-%m-%d %H:%M:%S') }}</span></p>
+                    <p><strong>Uploaded:</strong> <span id="upload-time">{{ file_data['timestamp']|int|datetime }}</span></p>
                 </div>
                 
                 <div id="signing-section">
