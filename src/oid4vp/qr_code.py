@@ -1,11 +1,12 @@
 import qrcode
 import io
 import base64
+import urllib.parse
 from PIL import Image
 
 def generate_qr_code(data, size=200):
     """
-    Generate a QR code for the given data
+    Generate a QR code specifically formatted for the SWIYU app
     
     Args:
         data (str): The data to encode in the QR code
@@ -15,6 +16,16 @@ def generate_qr_code(data, size=200):
         str: Base64 encoded image data for the QR code
     """
     try:
+        # Format the URL specifically for SWIYU app
+        # Ensure the URL uses the swiyu:// scheme or is properly formatted for SWIYU
+        if data.startswith('http'):
+            # Convert standard URL to SWIYU-compatible format
+            # Format: swiyu://auth?request_uri=<encoded_url>
+            encoded_url = urllib.parse.quote(data)
+            swiyu_url = f"swiyu://auth?request_uri={encoded_url}"
+        else:
+            swiyu_url = data
+        
         # Create QR code instance
         qr = qrcode.QRCode(
             version=1,
@@ -24,7 +35,7 @@ def generate_qr_code(data, size=200):
         )
         
         # Add data to the QR code
-        qr.add_data(data)
+        qr.add_data(swiyu_url)
         qr.make(fit=True)
         
         # Create an image from the QR code
