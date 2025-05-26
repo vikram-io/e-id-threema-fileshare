@@ -6,7 +6,7 @@ import requests
 import base64
 from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.hazmat.primitives import hashes
-from cryptography.hazmat.primitives.serialization import load_pem_private_key, Encoding, PrivateFormat, NoEncryption
+from cryptography.hazmat.primitives.serialization import load_pem_private_key, Encoding, PublicFormat, NoEncryption
 
 class SwiyuSignatureService:
     """
@@ -34,7 +34,7 @@ class SwiyuSignatureService:
         # Store the public key in PEM format
         self.public_key_pem = self.private_key.public_key().public_bytes(
             encoding=Encoding.PEM,
-            format=PrivateFormat.PKCS8
+            format=PublicFormat.SubjectPublicKeyInfo
         ).decode('utf-8')
     
     def create_presentation_request(self, file_id, callback_url, nonce=None):
